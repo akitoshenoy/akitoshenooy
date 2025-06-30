@@ -1,0 +1,788 @@
+import React, { useState, useEffect, createContext, useContext } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore'; // 修正された行
+
+// Context for Firebase services and user ID
+const FirebaseContext = createContext(null);
+
+// Firebase Provider component to initialize Firebase and manage auth state
+const FirebaseProvider = ({ children }) => {
+  const [app, setApp] = useState(null);
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  useEffect(() => {
+    // Initialize Firebase only once
+    if (!app) {
+      try {
+        const firebaseConfig = typeof __firebase_config !== 'undefined'
+          ? JSON.parse(__firebase_config)
+          : {}; // Fallback for local development if __firebase_config is not defined
+
+        const initializedApp = initializeApp(firebaseConfig);
+        const firestoreDb = getFirestore(initializedApp);
+        const firebaseAuth = getAuth(initializedApp);
+
+        setApp(initializedApp);
+        setDb(firestoreDb);
+        setAuth(firebaseAuth);
+
+        // Sign in anonymously or with custom token
+        const signIn = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(firebaseAuth, __initial_auth_token);
+            } else {
+              await signInAnonymously(firebaseAuth);
+            }
+          } catch (error) {
+            console.error("Firebase authentication error:", error);
+          }
+        };
+
+        signIn();
+
+        // Listen for auth state changes
+        const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+          if (user) {
+            setUserId(user.uid);
+          } else {
+            // If user logs out or session expires, keep a random ID for unauthenticated access
+            setUserId(crypto.randomUUID());
+          }
+          setIsAuthReady(true); // Mark auth as ready once initial check is done
+        });
+
+        // Cleanup subscription on unmount
+        return () => unsubscribe();
+      } catch (error) {
+        console.error("Failed to initialize Firebase:", error);
+      }
+    }
+  }, [app]); // Run once when app is null
+
+  return (
+    <FirebaseContext.Provider value={{ app, db, auth, userId, isAuthReady }}>
+      {children}
+    </FirebaseContext.Provider>
+  );
+};
+
+// Custom hook to use Firebase services
+const useFirebase = () => useContext(FirebaseContext);
+
+// Main App Component
+const App = () => {
+  const { db, userId, isAuthReady } = useFirebase();
+  const [content, setContent] = useState({
+    companyName: "インディア・イングリッシュ・ゲート", // India English Gate
+    heroTitle: "インド・イングリッシュ・ゲート", // India English Gate
+    heroSubtitle: "バンガロール、キリスト大学で学ぶ最高の英語留学体験", // The best English study abroad experience at Christ University, Bangalore
+    cheapestCourseMessage: "バンガロールで今すぐ受けられる最もお得な英語コース！", // The cheapest English course you can have right now in Bangalore!
+    learnMoreButton: "詳細を見る", // Learn More
+    aboutUsTitle: "私たちについて", // About Us
+    aboutUsText: "私たちのイングリッシュアカデミーへようこそ。日本人学生のために特別に調整された質の高い英語教育を提供することに専念しています。経験豊富な講師陣と独自のカリキュラムは、実践的なコミュニケーションスキル、文化理解、学術的卓越性に焦点を当てています。私たちは、すべての学生が成長し、言語目標を達成できる、支援的で没入感のある学習環境を創造することを信じています。", // Welcome to our English Academy...
+    founder1Name: "サマース・シェノイ・K", // Samarth Shenoy K
+    founder1Details: "インド・バンガロール出身、キリスト大学BBA FIB在学中", // From Bengaluru, India, studying BBA FIB at Christ University
+    founder2Name: "大石 晃人", // Akito Oishi
+    founder2Details: "日本・静岡県出身、キリスト大学BBA FIB在学中", // From Shizuoka, Japan, studying BBA FIB at Christ University
+    notAgentDisclaimer: "私たちは代理店ではありません。学生とインド・バンガロールにある実際の英語教育コースを繋ぐ役割を担っています。", // We are not agents. We connect students to the actual English teaching course in Bangalore, India.
+    imageVideoNote: "（ここにアカデミーや宿泊施設の画像や動画を後で追加できます）", // (You can add images and videos of the academy and accommodation here later.)
+    coursesTitle: "私たちのプログラム", // Our Programs
+    coursesIntro: "初心者から上級者まで、多様な学習ニーズに対応するために設計された様々なコースを提供しています。", // We offer a variety of courses...
+    course1Title: "基礎英語", // Foundational English
+    course1Description: "文法、語彙、基本的な会話スキルにおいて強固な基盤を築きます。", // Build a strong base...
+    course2Title: "ビジネス英語", // Business English
+    course2Description: "グローバルな職場でのプロフェッショナルなコミュニケーションを習得します。", // Master professional communication...
+    course3Title: "試験対策 (TOEFL/IELTS)", // Exam Preparation (TOEFL/IELTS)
+    course3Description: "標準化された英語能力試験で優れた成績を収めるための戦略的なトレーニング。", // Strategic training...
+    perksTitle: "料金に含まれる特典", // Perks Included in Fees
+    perk1: "空港送迎", // Airport pick-up
+    perk2: "SIMカード提供", // SIM card provision
+    perk3: "宿泊施設 (エアコン付き/なし)", // Accommodation (AC/Non-AC)
+    testimonialsTitle: "生徒の声", // What Our Students Say
+    testimonial1: "先生方は信じられないほど協力的で、レッスンはとても魅力的です。英語を話す自信がものすごくつきました！", // The teachers are incredibly supportive...
+    testimonial1Author: "Kさん、生徒", // Kさん, Student (Updated from K SAN)
+    testimonial2: "ここで集中的な準備をしたおかげで、TOEFL試験で素晴らしいスコアを取ることができました。強くお勧めします！", // I passed my TOEFL exam...
+    testimonial2Author: "Tさん、生徒", // Tさん, Student (Updated from T SAN)
+    contactTitle: "お問い合わせ", // Contact Us
+    contactEmailDefault: "info@indiaenglishgate.jp", // Default contact email
+    adminPassword: "admin", // Default password for admin access
+    adminLoginButton: "管理者ログイン", // Admin Login
+    hideAdminLoginButton: "管理者ログインを隠す", // Hide Admin Login
+    exitAdminModeButton: "管理者モードを終了", // Exit Admin Mode
+    enterAdminPasswordPrompt: "管理者パスワードを入力してください", // Enter Admin Password
+    loginButton: "ログイン", // Login
+    contentUpdatedMessage: "コンテンツが正常に更新されました！", // Content updated successfully!
+    failedToUpdateMessage: "コンテンツの更新に失敗しました。", // Failed to update content.
+    dbNotReadyMessage: "データベースの準備ができていないか、ユーザーが認証されていません。", // Database not ready or user not authenticated.
+    adminModeEnabledMessage: "管理者モードが有効になりました。", // Admin mode enabled.
+    adminModeDisabledMessage: "管理者モードが無効になりました。", // Admin mode disabled.
+    incorrectPasswordMessage: "パスワードが正しくありません。", // Incorrect password.
+    rememberPasswordMessage: "このパスワードは管理者アクセス用です。", // Remember this password for admin access.
+    emailLabel: "メールアドレス", // Email Address
+    nameLabel: "お名前", // Your Name
+    messageLabel: "メッセージ", // Message
+    sendEmailButton: "メールを送信", // Send Email
+    requestCallOption: "Zoom/Google Meetでのビデオ通話を希望", // Request Zoom/Google Meet video call
+    expressInterestOption: "興味がある旨をメールで伝える", // Express interest via email
+    interactionRequestText: "ライブで詳細を話したいですか？", // Want to interact live about it more?
+    responseTimeText: "メール送信後6〜7時間以内にご連絡いたします。", // We will let you know within 6 to 7 hours after you send the mail.
+    thankYouModalTitle: "お問い合わせありがとうございます！", // Thank You for Your Inquiry!
+    thankYouModalMessage: "お問い合わせを承りました。6〜7時間以内に返信いたしますので、しばらくお待ちください。", // We have received your inquiry. We will reply within 6 to 7 hours, so please wait a moment.
+    closeButton: "閉じる", // Close
+    footerRights: "© {year} インディア・イングリッシュ・ゲート. 無断転載を禁じます。", // © {year} India English Gate. All rights reserved.
+    phoneNumbersTitle: "お電話でのお問い合わせ", // Contact by Phone
+    samarthPhone: "+91 9110806517",
+    akitoPhone: "+81 8093096106",
+  });
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [showPasswordPrompt, setShowPasswordPrompt] = useState(false);
+  const [message, setMessage] = useState('');
+  const [showThankYouModal, setShowThankYouModal] = useState(false);
+
+  // Form states
+  const [formName, setFormName] = useState('');
+  const [formEmail, setFormEmail] = useState('');
+  const [formMessage, setFormMessage] = useState('');
+  const [formRequestCall, setFormRequestCall] = useState(false);
+  const [formExpressInterest, setFormExpressInterest] = useState(false);
+
+
+  // Determine the app ID dynamically
+  const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+  const contentDocPath = `artifacts/${appId}/public/data/academyContent/mainContent`;
+
+  useEffect(() => {
+    if (db && isAuthReady) {
+      const docRef = doc(db, contentDocPath);
+      // Set up a real-time listener for content updates
+      const unsubscribe = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setContent(prevContent => ({ ...prevContent, ...docSnap.data() }));
+        } else {
+          console.log("No initial content found, using default.");
+          // If no document exists, create it with default content
+          setDoc(docRef, content)
+            .then(() => console.log("Default content initialized in Firestore."))
+            .catch(error => console.error("Error initializing default content:", error));
+        }
+      }, (error) => {
+        console.error("Error fetching document:", error);
+        setMessage(content.failedToUpdateMessage); // Use Japanese message
+      });
+
+      return () => unsubscribe(); // Clean up the listener
+    }
+  }, [db, isAuthReady, appId, content]); // Re-run if db, auth readiness, appId, or content (for initial setDoc) changes
+
+  const handleUpdateContent = async (field, value) => {
+    if (db && userId) {
+      const docRef = doc(db, contentDocPath);
+      try {
+        await setDoc(docRef, { [field]: value }, { merge: true });
+        setMessage(content.contentUpdatedMessage); // Use Japanese message
+        setTimeout(() => setMessage(''), 3000);
+      } catch (e) {
+        console.error("Error updating document: ", e);
+        setMessage(content.failedToUpdateMessage); // Use Japanese message
+      }
+    } else {
+      setMessage(content.dbNotReadyMessage); // Use Japanese message
+    }
+  };
+
+  const handleAdminLogin = () => {
+    if (passwordInput === content.adminPassword) {
+      setIsAdminMode(true);
+      setShowPasswordPrompt(false);
+      setPasswordInput(''); // Clear password input
+      setMessage(content.adminModeEnabledMessage); // Use Japanese message
+    } else {
+      setMessage(content.incorrectPasswordMessage); // Use Japanese message
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminMode(false);
+    setMessage(content.adminModeDisabledMessage); // Use Japanese message
+  };
+
+  const handleAdminPasswordChange = (e) => {
+    setPasswordInput(e.target.value);
+  };
+
+  const toggleAdminPrompt = () => {
+    setShowPasswordPrompt(!showPasswordPrompt);
+    setPasswordInput(''); // Clear input when toggling prompt
+    setMessage(''); // Clear any previous messages
+  };
+
+  const handleEmailSubmit = (e) => {
+    e.preventDefault();
+    // In a real application, this would send an email via a backend service.
+    // For this demonstration, we'll just log the data and show a thank you message.
+    console.log("Email submitted:");
+    console.log("Name:", formName);
+    console.log("Email:", formEmail);
+    console.log("Message:", formMessage);
+    console.log("Request Call:", formRequestCall);
+    console.log("Express Interest:", formExpressInterest);
+
+    // Simulate sending email to shenoysamarth28@gmail.com
+    // For actual email sending, you would need a server-side endpoint
+    // that uses a service like SendGrid, Nodemailer, or Firebase Cloud Functions
+    // to send the email. Client-side JavaScript cannot directly send emails
+    // to arbitrary addresses for security reasons.
+
+    // Show thank you modal
+    setShowThankYouModal(true);
+    // Clear form fields
+    setFormName('');
+    setFormEmail('');
+    setFormMessage('');
+    setFormRequestCall(false);
+    setFormExpressInterest(false);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-inter text-gray-800 flex flex-col items-center">
+      {/* Global message display */}
+      {message && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 animate-fade-in-down">
+          {message}
+        </div>
+      )}
+
+      {/* Thank You Modal */}
+      {showThankYouModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl text-center max-w-md w-full mx-4">
+            <h3 className="text-2xl font-semibold mb-4 text-blue-700">{content.thankYouModalTitle}</h3>
+            <p className="text-lg mb-6 text-gray-700">{content.thankYouModalMessage}</p>
+            <button
+              onClick={() => setShowThankYouModal(false)}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              {content.closeButton}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Toggle Button */}
+      <div className="w-full bg-blue-700 text-white p-4 flex justify-between items-center shadow-md">
+        {isAdminMode ? (
+          <input
+            className="text-2xl font-bold bg-blue-800 text-white p-1 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+            value={content.companyName}
+            onChange={(e) => setContent({ ...content, companyName: e.target.value })}
+            onBlur={(e) => handleUpdateContent('companyName', e.target.value)}
+          />
+        ) : (
+          <h1 className="text-2xl font-bold">{content.companyName}</h1>
+        )}
+        <div className="flex items-center space-x-4">
+          <span className="text-sm">ユーザーID: {userId || '読み込み中...'}</span>
+          {isAdminMode ? (
+            <button
+              onClick={handleAdminLogout}
+              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              {content.exitAdminModeButton}
+            </button>
+          ) : (
+            <button
+              onClick={toggleAdminPrompt}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              {showPasswordPrompt ? content.hideAdminLoginButton : content.adminLoginButton}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showPasswordPrompt && !isAdminMode && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
+          <div className="bg-white p-8 rounded-lg shadow-xl text-center">
+            <h3 className="text-xl font-semibold mb-4">{content.enterAdminPasswordPrompt}</h3>
+            <input
+              type="password"
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              onKeyPress={(e) => { if (e.key === 'Enter') handleAdminLogin(); }}
+              placeholder={content.enterAdminPasswordPrompt}
+            />
+            <button
+              onClick={handleAdminLogin}
+              className="w-full px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105"
+            >
+              {content.loginButton}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area */}
+      <div className="container mx-auto p-4 md:p-8 max-w-4xl w-full">
+        {/* Cheapest Course Message */}
+        <section className="bg-yellow-100 text-yellow-800 p-4 rounded-lg shadow-md mb-8 text-center border border-yellow-300">
+          {isAdminMode ? (
+            <textarea
+              className="w-full text-lg font-bold bg-yellow-200 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 h-20 resize-y"
+              value={content.cheapestCourseMessage}
+              onChange={(e) => handleUpdateContent('cheapestCourseMessage', e.target.value)}
+            />
+          ) : (
+            <p className="text-lg font-bold">{content.cheapestCourseMessage}</p>
+          )}
+        </section>
+
+        {/* Hero Section */}
+        <section className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-8 md:p-12 rounded-xl shadow-lg mb-12 text-center">
+          {isAdminMode ? (
+            <>
+              <input
+                className="w-full text-4xl md:text-5xl font-extrabold mb-4 bg-blue-800 text-white p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+                value={content.heroTitle}
+                onChange={(e) => handleUpdateContent('heroTitle', e.target.value)}
+              />
+              <textarea
+                className="w-full text-xl md:text-2xl mb-6 bg-blue-800 text-white p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300 h-24 resize-y"
+                value={content.heroSubtitle}
+                onChange={(e) => handleUpdateContent('heroSubtitle', e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <h2 className="text-4xl md:text-5xl font-extrabold mb-4">{content.heroTitle}</h2>
+              <p className="text-xl md:text-2xl mb-6">{content.heroSubtitle}</p>
+            </>
+          )}
+          <button className="px-8 py-4 bg-white text-blue-700 font-bold text-lg rounded-full shadow-lg hover:bg-gray-100 transition duration-300 ease-in-out transform hover:scale-105">
+            {content.learnMoreButton}
+          </button>
+        </section>
+
+        {/* About Us Section */}
+        <section className="bg-white p-8 md:p-10 rounded-xl shadow-lg mb-12">
+          {isAdminMode ? (
+            <>
+              <input
+                className="w-full text-3xl md:text-4xl font-bold mb-6 text-center bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={content.aboutUsTitle}
+                onChange={(e) => handleUpdateContent('aboutUsTitle', e.target.value)}
+              />
+              <textarea
+                className="w-full text-lg leading-relaxed bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-48 resize-y mb-6"
+                value={content.aboutUsText}
+                onChange={(e) => handleUpdateContent('aboutUsText', e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <h3 className="text-3xl md:text-4xl font-bold mb-6 text-center text-blue-700">{content.aboutUsTitle}</h3>
+              <p className="text-lg leading-relaxed text-gray-700 mb-6">{content.aboutUsText}</p>
+            </>
+          )}
+
+          <div className="flex flex-col md:flex-row justify-around items-start gap-8 mt-8">
+            {/* Founder 1 */}
+            <div className="text-center md:text-left">
+              {isAdminMode ? (
+                <>
+                  <input
+                    className="w-full text-xl font-semibold bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                    value={content.founder1Name}
+                    onChange={(e) => handleUpdateContent('founder1Name', e.target.value)}
+                  />
+                  <textarea
+                    className="w-full text-md text-gray-600 bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-y"
+                    value={content.founder1Details}
+                    onChange={(e) => handleUpdateContent('founder1Details', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xl font-semibold text-blue-800">{content.founder1Name}</h4>
+                  <p className="text-md text-gray-600">{content.founder1Details}</p>
+                </>
+              )}
+            </div>
+            {/* Founder 2 */}
+            <div className="text-center md:text-left">
+              {isAdminMode ? (
+                <>
+                  <input
+                    className="w-full text-xl font-semibold bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                    value={content.founder2Name}
+                    onChange={(e) => handleUpdateContent('founder2Name', e.target.value)}
+                  />
+                  <textarea
+                    className="w-full text-md text-gray-600 bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-y"
+                    value={content.founder2Details}
+                    onChange={(e) => handleUpdateContent('founder2Details', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xl font-semibold text-blue-800">{content.founder2Name}</h4>
+                  <p className="text-md text-gray-600">{content.founder2Details}</p>
+                </>
+              )}
+            </div>
+          </div>
+          <p className="text-sm italic text-gray-500 mt-8 text-center">
+            {isAdminMode ? (
+              <textarea
+                className="w-full bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-y"
+                value={content.notAgentDisclaimer}
+                onChange={(e) => handleUpdateContent('notAgentDisclaimer', e.target.value)}
+              />
+            ) : (
+              content.notAgentDisclaimer
+            )}
+          </p>
+          <p className="text-sm italic text-gray-500 mt-4 text-center">
+            {isAdminMode ? (
+              <textarea
+                className="w-full bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-20 resize-y"
+                value={content.imageVideoNote}
+                onChange={(e) => handleUpdateContent('imageVideoNote', e.target.value)}
+              />
+            ) : (
+              content.imageVideoNote
+            )}
+          </p>
+        </section>
+
+        {/* Courses Section */}
+        <section className="bg-white p-8 md:p-10 rounded-xl shadow-lg mb-12">
+          {isAdminMode ? (
+            <>
+              <input
+                className="w-full text-3xl md:text-4xl font-bold mb-4 text-center bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={content.coursesTitle}
+                onChange={(e) => handleUpdateContent('coursesTitle', e.target.value)}
+              />
+              <textarea
+                className="w-full text-lg mb-8 text-center bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-y"
+                value={content.coursesIntro}
+                onChange={(e) => handleUpdateContent('coursesIntro', e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <h3 className="text-3xl md:text-4xl font-bold mb-4 text-center text-blue-700">{content.coursesTitle}</h3>
+              <p className="text-lg mb-8 text-center text-gray-600">{content.coursesIntro}</p>
+            </>
+          )}
+
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Course 1 */}
+            <div className="bg-blue-50 p-6 rounded-lg shadow-md border border-blue-200">
+              {isAdminMode ? (
+                <>
+                  <input
+                    className="w-full text-xl font-semibold mb-2 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={content.course1Title}
+                    onChange={(e) => handleUpdateContent('course1Title', e.target.value)}
+                  />
+                  <textarea
+                    className="w-full text-gray-700 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-y"
+                    value={content.course1Description}
+                    onChange={(e) => handleUpdateContent('course1Description', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xl font-semibold mb-2 text-blue-800">{content.course1Title}</h4>
+                  <p className="text-gray-700">{content.course1Description}</p>
+                </>
+              )}
+            </div>
+            {/* Course 2 */}
+            <div className="bg-blue-50 p-6 rounded-lg shadow-md border border-blue-200">
+              {isAdminMode ? (
+                <>
+                  <input
+                    className="w-full text-xl font-semibold mb-2 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={content.course2Title}
+                    onChange={(e) => handleUpdateContent('course2Title', e.target.value)}
+                  />
+                  <textarea
+                    className="w-full text-gray-700 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-y"
+                    value={content.course2Description}
+                    onChange={(e) => handleUpdateContent('course2Description', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xl font-semibold mb-2 text-blue-800">{content.course2Title}</h4>
+                  <p className="text-gray-700">{content.course2Description}</p>
+                </>
+              )}
+            </div>
+            {/* Course 3 */}
+            <div className="bg-blue-50 p-6 rounded-lg shadow-md border border-blue-200">
+              {isAdminMode ? (
+                <>
+                  <input
+                    className="w-full text-xl font-semibold mb-2 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={content.course3Title}
+                    onChange={(e) => handleUpdateContent('course3Title', e.target.value)}
+                  />
+                  <textarea
+                    className="w-full text-gray-700 bg-blue-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-24 resize-y"
+                    value={content.course3Description}
+                    onChange={(e) => handleUpdateContent('course3Description', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <h4 className="text-xl font-semibold mb-2 text-blue-800">{content.course3Title}</h4>
+                  <p className="text-gray-700">{content.course3Description}</p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Perks Section */}
+        <section className="bg-white p-8 md:p-10 rounded-xl shadow-lg mb-12">
+          {isAdminMode ? (
+            <input
+              className="w-full text-3xl md:text-4xl font-bold mb-8 text-center bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={content.perksTitle}
+              onChange={(e) => handleUpdateContent('perksTitle', e.target.value)}
+            />
+          ) : (
+            <h3 className="text-3xl md:text-4xl font-bold mb-8 text-center text-blue-700">{content.perksTitle}</h3>
+          )}
+          <ul className="list-disc list-inside space-y-3 text-lg text-gray-700 pl-4">
+            <li>
+              {isAdminMode ? (
+                <input
+                  className="w-full bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={content.perk1}
+                  onChange={(e) => handleUpdateContent('perk1', e.target.value)}
+                />
+              ) : (
+                content.perk1
+              )}
+            </li>
+            <li>
+              {isAdminMode ? (
+                <input
+                  className="w-full bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={content.perk2}
+                  onChange={(e) => handleUpdateContent('perk2', e.target.value)}
+                />
+              ) : (
+                content.perk2
+              )}
+            </li>
+            <li>
+              {isAdminMode ? (
+                <input
+                  className="w-full bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={content.perk3}
+                  onChange={(e) => handleUpdateContent('perk3', e.target.value)}
+                />
+              ) : (
+                content.perk3
+              )}
+            </li>
+          </ul>
+        </section>
+
+        {/* Testimonials Section */}
+        <section className="bg-white p-8 md:p-10 rounded-xl shadow-lg mb-12">
+          {isAdminMode ? (
+            <input
+              className="w-full text-3xl md:text-4xl font-bold mb-8 text-center bg-gray-100 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={content.testimonialsTitle}
+              onChange={(e) => handleUpdateContent('testimonialsTitle', e.target.value)}
+            />
+          ) : (
+            <h3 className="text-3xl md:text-4xl font-bold mb-8 text-center text-blue-700">{content.testimonialsTitle}</h3>
+          )}
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Testimonial 1 */}
+            <div className="bg-gray-100 p-6 rounded-lg shadow-inner border border-gray-200">
+              {isAdminMode ? (
+                <>
+                  <textarea
+                    className="w-full italic text-gray-800 mb-4 bg-gray-200 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-32 resize-y"
+                    value={content.testimonial1}
+                    onChange={(e) => handleUpdateContent('testimonial1', e.target.value)}
+                  />
+                  <input
+                    className="w-full font-semibold text-blue-700 bg-gray-200 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={content.testimonial1Author}
+                    onChange={(e) => handleUpdateContent('testimonial1Author', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="italic text-gray-800 mb-4">"{content.testimonial1}"</p>
+                  <p className="font-semibold text-blue-700">- {content.testimonial1Author}</p>
+                </>
+              )}
+            </div>
+            {/* Testimonial 2 */}
+            <div className="bg-gray-100 p-6 rounded-lg shadow-inner border border-gray-200">
+              {isAdminMode ? (
+                <>
+                  <textarea
+                    className="w-full italic text-gray-800 mb-4 bg-gray-200 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 h-32 resize-y"
+                    value={content.testimonial2}
+                    onChange={(e) => handleUpdateContent('testimonial2', e.target.value)}
+                  />
+                  <input
+                    className="w-full font-semibold text-blue-700 bg-gray-200 p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    value={content.testimonial2Author}
+                    onChange={(e) => handleUpdateContent('testimonial2Author', e.target.value)}
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="italic text-gray-800 mb-4">"{content.testimonial2}"</p>
+                  <p className="font-semibold text-blue-700">- {content.testimonial2Author}</p>
+                </>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Contact Section */}
+        <section className="bg-blue-700 text-white p-8 md:p-10 rounded-xl shadow-lg mb-12 text-center">
+          {isAdminMode ? (
+            <input
+              className="w-full text-3xl md:text-4xl font-bold mb-6 bg-blue-800 text-white p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+              value={content.contactTitle}
+              onChange={(e) => handleUpdateContent('contactTitle', e.target.value)}
+            />
+          ) : (
+            <h3 className="text-3xl md:text-4xl font-bold mb-6">{content.contactTitle}</h3>
+          )}
+          <div className="space-y-4 text-lg">
+            {isAdminMode ? (
+              <>
+                <div className="flex flex-col items-center">
+                  <label htmlFor="contactEmailDefault" className="text-white text-sm mb-2">デフォルトの連絡先メールアドレス:</label>
+                  <input
+                    id="contactEmailDefault"
+                    className="w-full max-w-md bg-blue-800 text-white p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    value={content.contactEmailDefault}
+                    onChange={(e) => handleUpdateContent('contactEmailDefault', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col items-center pt-4">
+                  <label htmlFor="adminPassword" className="text-white text-sm mb-2">{content.rememberPasswordMessage}</label>
+                  <input
+                    id="adminPassword"
+                    type="text" // Use text for easy viewing/editing by non-coder
+                    className="w-full max-w-md bg-blue-800 text-white p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    value={content.adminPassword}
+                    onChange={(e) => handleUpdateContent('adminPassword', e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xl font-bold mb-4">{content.interactionRequestText}</p>
+                <p className="text-md mb-6">{content.responseTimeText}</p>
+
+                <form onSubmit={handleEmailSubmit} className="space-y-4 max-w-md mx-auto text-left">
+                  <div>
+                    <label htmlFor="name" className="block text-white text-sm font-bold mb-2">{content.nameLabel}</label>
+                    <input
+                      type="text"
+                      id="name"
+                      className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:ring-2 focus:ring-blue-500"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="email" className="block text-white text-sm font-bold mb-2">{content.emailLabel}</label>
+                    <input
+                      type="email"
+                      id="email"
+                      className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:ring-2 focus:ring-blue-500"
+                      value={formEmail}
+                      onChange={(e) => setFormEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="message" className="block text-white text-sm font-bold mb-2">{content.messageLabel}</label>
+                    <textarea
+                      id="message"
+                      className="shadow appearance-none border rounded-lg w-full py-3 px-4 text-gray-700 leading-tight focus:outline-none focus:shadow-outline focus:ring-2 focus:ring-blue-500 h-32 resize-y"
+                      value={formMessage}
+                      onChange={(e) => setFormMessage(e.target.value)}
+                      required
+                    ></textarea>
+                  </div>
+                  <div className="flex items-center mb-2">
+                    <input
+                      type="checkbox"
+                      id="requestCall"
+                      className="form-checkbox h-5 w-5 text-blue-600 rounded-md"
+                      checked={formRequestCall}
+                      onChange={(e) => setFormRequestCall(e.target.checked)}
+                    />
+                    <label htmlFor="requestCall" className="ml-2 text-white text-md cursor-pointer">{content.requestCallOption}</label>
+                  </div>
+                  <div className="flex items-center mb-4">
+                    <input
+                      type="checkbox"
+                      id="expressInterest"
+                      className="form-checkbox h-5 w-5 text-blue-600 rounded-md"
+                      checked={formExpressInterest}
+                      onChange={(e) => setFormExpressInterest(e.target.checked)}
+                    />
+                    <label htmlFor="expressInterest" className="ml-2 text-white text-md cursor-pointer">{content.expressInterestOption}</label>
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full px-6 py-3 bg-white text-blue-700 font-bold rounded-lg shadow-lg hover:bg-gray-100 transition duration-300 ease-in-out transform hover:scale-105"
+                  >
+                    {content.sendEmailButton}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+
+      {/* Footer */}
+      <footer className="w-full bg-gray-800 text-white p-6 text-center mt-auto rounded-t-xl shadow-inner">
+        <p>{content.footerRights.replace('{year}', new Date().getFullYear())}</p>
+        <div className="mt-4">
+          <h4 className="text-xl font-bold mb-2">{content.phoneNumbersTitle}</h4>
+          <p>サマース: <a href={`tel:${content.samarthPhone}`} className="underline hover:text-blue-200">{content.samarthPhone}</a></p>
+          <p>アキト: <a href={`tel:${content.akitoPhone}`} className="underline hover:text-blue-200">{content.akitoPhone}</a></p>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+// Wrapper component to provide Firebase context to the App
+const RootApp = () => (
+  <FirebaseProvider>
+    <App />
+  </FirebaseProvider>
+);
+
+export default RootApp;
